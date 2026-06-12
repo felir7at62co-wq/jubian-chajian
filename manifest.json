@@ -3,7 +3,7 @@
   "name": "jubianai 图片匹配助手",
   "version": "2.0",
   "description": "智能图片匹配 + 在线画图工具 + LLM 分析",
-  "permissions": ["activeTab", "storage", "alarms", "tabs"],
+  "permissions": ["activeTab", "storage", "alarms", "tabs", "scripting"],
   "host_permissions": [
     "https://web.jubianai.net/*",
     "https://ark.cn-beijing.volces.com/*"

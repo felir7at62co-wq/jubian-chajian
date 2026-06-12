@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **jubianai-assist** (542 symbols, 880 relationships, 47 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **jubian-chajian** (705 symbols, 1138 relationships, 62 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -24,10 +24,10 @@ This project is indexed by GitNexus as **jubianai-assist** (542 symbols, 880 rel
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/jubianai-assist/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/jubianai-assist/clusters` | All functional areas |
-| `gitnexus://repo/jubianai-assist/processes` | All execution flows |
-| `gitnexus://repo/jubianai-assist/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/jubian-chajian/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/jubian-chajian/clusters` | All functional areas |
+| `gitnexus://repo/jubian-chajian/processes` | All execution flows |
+| `gitnexus://repo/jubian-chajian/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

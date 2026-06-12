@@ -27,7 +27,7 @@ const CSS_FILES = ['content_style.css'];
 // ─── 启动检查：待处理的更新 ───────────────────────────
 chrome.storage.local.get('_jb_pending', (r) => {
   if (r._jb_pending) {
-    chrome.storage.local.remove('_jb_pending');
+    // 不删除 _jb_pending 标记，让 GET_CODE 处理完后自动清除
     chrome.tabs.query({ url: '*://web.jubianai.net/*' }, (tabs) => {
       tabs.forEach(t => chrome.tabs.reload(t.id));
     });
@@ -189,11 +189,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     // ── 为 loader.js 提供代码 ──
     case 'GET_CODE':
-      chrome.storage.local.get(['_jb_js', '_jb_css'], async (res) => {
-        if (res._jb_js) {
+      chrome.storage.local.get(['_jb_js', '_jb_css', '_jb_pending'], async (res) => {
+        // 如果是热更新的待处理状态，用 storage 里下载的代码
+        // 否则始终从本地文件加载，确保开发时修改即时生效
+        if (res._jb_js && res._jb_pending) {
           sendResponse({ js: res._jb_js, css: res._jb_css || '' });
+          chrome.storage.local.remove('_jb_pending');
         } else {
-          // 首次加载，storage 还没有缓存 → 从本地文件加载
           const local = await loadCodeFromLocal();
           chrome.storage.local.set({
             _jb_version: chrome.runtime.getManifest().version,
