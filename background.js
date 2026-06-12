@@ -224,6 +224,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'CHECK_UPDATE_NOW':
       checkForUpdates().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
       return true;
+    // ── 通过 scripting API 注入代码到 main world ──
+    case 'INJECT_CODE':
+      if (!sender.tab || !sender.tab.id) {
+        sendResponse({ ok: false, error: 'No tab context' });
+        return true;
+      }
+      chrome.scripting.executeScript({
+        target: { tabId: sender.tab.id },
+        world: 'MAIN',
+        func: (code, proxyCode) => { eval(proxyCode); eval(code); },
+        args: [request.code, request.proxyCode]
+      }).then(() => sendResponse({ ok: true })).catch(e => sendResponse({ ok: false, error: e.message }));
+      return true;
     default:
       sendResponse({ ok: false, error: `未知消息类型: ${request.type}` });
       return true;
