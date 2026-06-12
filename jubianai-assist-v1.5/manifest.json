@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "jubianai 图片匹配助手",
+  "version": "2.0",
+  "description": "智能图片匹配 + 在线画图工具 + LLM 分析",
+  "permissions": ["activeTab", "storage", "alarms", "tabs"],
+  "host_permissions": [
+    "https://web.jubianai.net/*",
+    "https://ark.cn-beijing.volces.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.jubianai.net/*"],
+      "js": ["loader.js"],
+      "css": ["content_style.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [{
+    "resources": ["page_uploader.js", "skills/**/*.md"],
+    "matches": ["https://web.jubianai.net/*"]
+  }],
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}
