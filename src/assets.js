@@ -58,8 +58,8 @@ function deleteThumbnailFromDB(id) {
 }
 
 function renderAssetPanel() {
-  const panel = jbPanelSystem.panels.find(p => p.id === 'assets');
-  if (!panel) return;
+  var body = JB.getBody('assets');
+  if (!body) return;
 
   const tabs = ASSET_CATEGORIES.map(c =>
     `<button class="jb-tab ${c.key === _currentAssetCategory ? 'active' : ''}" data-cat="${c.key}">${c.icon} ${c.label}</button>`
@@ -86,7 +86,7 @@ function renderAssetPanel() {
     <input type="file" id="jb-asset-file-input" multiple accept="image/*" style="display:none">
     <div id="jb-asset-list">${itemList.length ? itemList : '<div class="jb-empty">暂无图片</div>'}</div>`;
 
-  panel.element.querySelector('.jb-panel-body').innerHTML = html;
+  body.innerHTML = html;
   bindAssetEvents();
 }
 

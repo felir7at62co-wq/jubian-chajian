@@ -153,9 +153,10 @@ async function syncFromGitHub() {
   });
 }
 
-// ─── 请求缓存（同内容去重，5 分钟内有效）─────────────
+// ─── 请求缓存 + 中止支持 ────────────────────────────
 const requestCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
+const pendingRequests = new Map(); // requestId → AbortController
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.type) {
@@ -223,6 +224,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       return true;
     // ── 手动触发检查更新 ──
+    case 'ABORT_ARK':
+      if (pendingRequests.has(request.requestId)) {
+        pendingRequests.get(request.requestId).abort();
+        pendingRequests.delete(request.requestId);
+      }
+      sendResponse({ ok: true });
+      return true;
     case 'CHECK_UPDATE_NOW':
       checkForUpdates().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
       return true;
@@ -249,12 +257,17 @@ async function handleArkApi(request, sendResponse) {
   const { messages, model = DEFAULT_MODEL, maxTokens = 4096, temperature = 0.1, url } = request;
   const API_URL = url || ARK_API_URL;
 
+  // 中止支持
+  const controller = new AbortController();
+  if (request.requestId) pendingRequests.set(request.requestId, controller);
+
   // 缓存检查（仅对纯文本请求，视觉请求不缓存）
   const cacheKey = request._noCache ? null : JSON.stringify({ messages, model, url: API_URL });
   if (cacheKey && requestCache.has(cacheKey)) {
     const cached = requestCache.get(cacheKey);
     if (Date.now() - cached.timestamp < CACHE_TTL) {
       sendResponse({ ok: true, data: cached.data });
+      if (request.requestId) pendingRequests.delete(request.requestId);
       return;
     }
     requestCache.delete(cacheKey);
@@ -263,6 +276,7 @@ async function handleArkApi(request, sendResponse) {
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Authorization': `Bearer ${request.apiKey}`,
         'Content-Type': 'application/json',
@@ -277,11 +291,11 @@ async function handleArkApi(request, sendResponse) {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '未知错误');
-      // 502/503 自动重试一次
       if (response.status >= 500 && response.status < 600) {
         await new Promise(r => setTimeout(r, 2000));
         const retryResp = await fetch(API_URL, {
           method: 'POST',
+          signal: controller.signal,
           headers: {
             'Authorization': `Bearer ${request.apiKey}`,
             'Content-Type': 'application/json',
@@ -295,21 +309,30 @@ async function handleArkApi(request, sendResponse) {
         });
         if (!retryResp.ok) {
           sendResponse({ ok: false, error: `API 错误 (${retryResp.status}): ${errorText}` });
+          if (request.requestId) pendingRequests.delete(request.requestId);
           return;
         }
         const data = await retryResp.json();
         if (cacheKey) requestCache.set(cacheKey, { data, timestamp: Date.now() });
         sendResponse({ ok: true, data });
+        if (request.requestId) pendingRequests.delete(request.requestId);
         return;
       }
       sendResponse({ ok: false, error: `API 错误 (${response.status}): ${errorText}` });
+      if (request.requestId) pendingRequests.delete(request.requestId);
       return;
     }
 
     const data = await response.json();
     if (cacheKey) requestCache.set(cacheKey, { data, timestamp: Date.now() });
     sendResponse({ ok: true, data });
+    if (request.requestId) pendingRequests.delete(request.requestId);
   } catch (err) {
-    sendResponse({ ok: false, error: `网络错误: ${err.message}` });
+    if (err.name === 'AbortError') {
+      sendResponse({ ok: false, error: '用户中止' });
+    } else {
+      sendResponse({ ok: false, error: `网络错误: ${err.message}` });
+    }
+    if (request.requestId) pendingRequests.delete(request.requestId);
   }
 }

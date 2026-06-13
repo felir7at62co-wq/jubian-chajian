@@ -62,8 +62,8 @@ async function loadSkillContent(skill) {
 }
 
 function renderSkillPanel() {
-  const panel = jbPanelSystem.panels.find(p => p.id === 'skills');
-  if (!panel) return;
+  var body = JB.getBody('skills');
+  if (!body) return;
 
   let html = `
     <div style="margin-bottom:8px;display:flex;gap:4px;">
@@ -92,7 +92,7 @@ function renderSkillPanel() {
   for (const s of uncategorized) html += renderSkillItem(s);
 
   html += `</div>`;
-  panel.element.querySelector('.jb-panel-body').innerHTML = html;
+  body.innerHTML = html;
   bindSkillEvents();
 }
 

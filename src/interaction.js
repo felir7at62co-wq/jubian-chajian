@@ -32,8 +32,8 @@ function initInteraction() {
 }
 
 function renderInteractionPanel() {
-  const panel = jbPanelSystem.panels.find(p => p.id === 'interaction');
-  if (!panel) return;
+  var body = document.getElementById('jb-center-body');
+  if (!body) return;
 
   // 确保至少有一个模型可用
   if (!globalState.models || globalState.models.length === 0) {
@@ -55,7 +55,7 @@ function renderInteractionPanel() {
       </select>
       <button class="jb-btn" id="jb-settings-btn" style="padding:6px;font-size:11px;">⚙️</button>
     </div>
-    <input type="file" id="jb-doc-file-input" accept=".txt,.png,.jpg,.jpeg,.gif,.webp" style="display:none">
+    <input type="file" id="jb-doc-file-input" accept=".txt,.png,.jpg,.jpeg,.gif,.webp" multiple style="display:none">
     <div id="jb-interaction-output" style="flex:1;background:#0D0D0D;border:1px solid #333;padding:8px;margin:6px 0;overflow-y:auto;font-size:15px;font-weight:400;line-height:1.8;white-space:pre-wrap;color:#e0e0e0;font-family:'Microsoft YaHei UI','Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif;min-height:60px;">
       <div class="jb-empty">选择 Skill → 输入剧本 → 点击执行</div>
     </div>
@@ -74,7 +74,7 @@ function renderInteractionPanel() {
         <button id="jb-clear-output-btn" style="background:none;border:none;color:#555;cursor:pointer;font-size:10px;">清空</button>
       </div>
     </div>`;
-  panel.element.querySelector('.jb-panel-body').innerHTML = html;
+  body.innerHTML = html;
   bindInteractionEvents();
   // 恢复已存在的聊天记录
   const msgs = globalState._chatMessages || [];
@@ -92,18 +92,23 @@ function bindInteractionEvents() {
     document.getElementById('jb-doc-file-input').click();
   });
   document.getElementById('jb-doc-file-input')?.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
     e.target.value = '';
-    // 图片 → 显示在聊天区
-    if (file.type.startsWith('image/')) { handleImageInput(file); return; }
-    // 文本 → 填入输入框
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      document.getElementById('jb-input-text').value = ev.target.result;
-      showToast('✅ 已加载: ' + file.name);
-    };
-    reader.readAsText(file);
+    let textLoaded = false;
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        handleImageInput(file);
+      } else if (!textLoaded) {
+        textLoaded = true;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          document.getElementById('jb-input-text').value = ev.target.result;
+          showToast('✅ 已加载: ' + file.name);
+        };
+        reader.readAsText(file);
+      }
+    }
   });
   // 拖入图片到输入区（桌面拖拽 / 资产池拖拽 均走 files）
   const inputArea = document.getElementById('jb-input-area');
@@ -113,27 +118,34 @@ function bindInteractionEvents() {
     inputArea.addEventListener('drop', (e) => {
       e.preventDefault();
       inputArea.style.outline = 'none';
-      // 尝试从 files 获取（桌面拖拽）
-      let imgFile = e.dataTransfer.files[0];
-      // 尝试从 items 获取（资产池/程序拖拽）
-      if (!imgFile || !imgFile.type.startsWith('image/')) {
-        for (var i = 0; i < e.dataTransfer.items.length; i++) {
-          var item = e.dataTransfer.items[i];
-          if (item.kind === 'file' && item.type.startsWith('image/')) {
-            imgFile = item.getAsFile();
-            break;
+      const files = [];
+      // 从 dataTransfer.files 收集（桌面拖拽）
+      for (var i = 0; i < e.dataTransfer.files.length; i++) {
+        var f = e.dataTransfer.files[i];
+        if (f) files.push(f);
+      }
+      // 从 dataTransfer.items 收集（资产池/程序拖拽，补充 files 中没有的）
+      for (var j = 0; j < e.dataTransfer.items.length; j++) {
+        var item = e.dataTransfer.items[j];
+        if (item.kind === 'file') {
+          var fi = item.getAsFile();
+          if (fi && !files.some(function(x) { return x.name === fi.name && x.size === fi.size; })) {
+            files.push(fi);
           }
         }
       }
-      // 最后兜底：从 text/uri-list（blob URL）读取
-      if (!imgFile) {
+      // 过滤出图片文件
+      var imageFiles = files.filter(function(f) { return f.type && f.type.startsWith('image/'); });
+      // 兜底：从 text/uri-list（blob URL）
+      if (!imageFiles.length) {
         var blobUrl = e.dataTransfer.getData('text/uri-list');
         if (blobUrl && blobUrl.startsWith('blob:')) {
-          fetch(blobUrl).then(r => r.blob()).then(b => handleImageInput(b));
+          fetch(blobUrl).then(function(r) { return r.blob(); }).then(function(b) { handleImageInput(b); });
           return;
         }
       }
-      if (imgFile) handleImageInput(imgFile);
+      for (var k = 0; k < imageFiles.length; k++) handleImageInput(imageFiles[k]);
+      if (imageFiles.length > 1) showToast('🖼️ 已添加 ' + imageFiles.length + ' 张图片');
     });
   }
 
@@ -240,7 +252,14 @@ function replaceLastMessage(role, content) {
   output.scrollTop = output.scrollHeight;
 }
 
+const MAX_IMAGES = 9;
+
 function handleImageInput(file) {
+  if (!globalState._pendingImages) globalState._pendingImages = [];
+  if (globalState._pendingImages.length >= MAX_IMAGES) {
+    showToast('⚠️ 最多支持 ' + MAX_IMAGES + ' 张图片');
+    return;
+  }
   // 大图自动压缩（超过 3MB 缩小到最长边 2048px）
   const MAX_BYTES = 3 * 1024 * 1024;
   if (file.size > MAX_BYTES) {
@@ -259,7 +278,7 @@ function handleImageInput(file) {
         const ctx = c.getContext('2d');
         ctx.drawImage(img, 0, 0, w, h);
         const dataURL = c.toDataURL('image/jpeg', 0.85);
-        setPendingImage(dataURL);
+        addPendingImage(dataURL);
         showToast('🖼️ 原图 ' + (file.size / 1024 / 1024).toFixed(1) + 'MB，已压缩');
       };
       img.src = ev.target.result;
@@ -267,26 +286,56 @@ function handleImageInput(file) {
     reader.readAsDataURL(file);
   } else {
     const reader = new FileReader();
-    reader.onload = (ev) => setPendingImage(ev.target.result);
+    reader.onload = (ev) => addPendingImage(ev.target.result);
     reader.readAsDataURL(file);
   }
 }
 
-function setPendingImage(dataURL) {
-  globalState._pendingImage = dataURL;
+function addPendingImage(dataURL) {
+  if (!globalState._pendingImages) globalState._pendingImages = [];
+  if (globalState._pendingImages.length >= MAX_IMAGES) {
+    showToast('⚠️ 最多支持 ' + MAX_IMAGES + ' 张图片');
+    return;
+  }
+  globalState._pendingImages.push(dataURL);
+  showToast('📸 ' + globalState._pendingImages.length + '/' + MAX_IMAGES);
+  renderPreview();
+}
+
+function renderPreview() {
   const preview = document.getElementById('jb-input-preview');
   if (!preview) return;
+  var images = globalState._pendingImages || [];
+  if (!images.length) {
+    preview.style.display = 'none';
+    preview.innerHTML = '';
+    return;
+  }
   preview.style.display = 'flex';
-  preview.innerHTML = '<div style="position:relative;display:inline-block;"><img src="' + dataURL + '" style="height:60px;border-radius:4px;"><span class="jb-preview-remove" style="position:absolute;top:-6px;right:-6px;background:#FF0055;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;text-align:center;line-height:16px;cursor:pointer;">✕</span></div>';
-  preview.querySelector('.jb-preview-remove').onclick = function() {
-    preview.style.display = 'none'; preview.innerHTML = '';
-    globalState._pendingImage = null;
-  };
+  preview.innerHTML = images.map(function(d, i) {
+    return '<div data-idx="' + i + '" style="position:relative;display:inline-block;">' +
+      '<img src="' + d + '" style="height:60px;border-radius:4px;">' +
+      '<span class="jb-prv-rm" style="position:absolute;top:-6px;right:-6px;background:#FF0055;color:#fff;border-radius:50%;width:16px;height:16px;font-size:11px;text-align:center;line-height:16px;cursor:pointer;">✕</span>' +
+    '</div>';
+  }).join('') +
+  '<span style="font-size:10px;color:#888;align-self:flex-end;padding:2px;">' + images.length + '/' + MAX_IMAGES + '</span>';
+
+  Array.from(preview.querySelectorAll('.jb-prv-rm')).forEach(function(btn) {
+    btn.onclick = function() {
+      var wrapper = this.parentElement;
+      var idx = parseInt(wrapper.dataset.idx);
+      if (globalState._pendingImages) {
+        globalState._pendingImages.splice(idx, 1);
+      }
+      renderPreview();
+    };
+  });
 }
 
 async function executeSkill() {
   const input = document.getElementById('jb-input-text').value.trim();
-  if (!input && !globalState._pendingImage) { showToast('⚠️ 请输入内容或上传图片'); return; }
+  const pendingImages = globalState._pendingImages || [];
+  if (!input && !pendingImages.length) { showToast('⚠️ 请输入内容或上传图片'); return; }
 
   const modelIdx = parseInt(document.getElementById('jb-model-selector')?.value || '0');
   const modelCfg = globalState.models[modelIdx];
@@ -305,14 +354,17 @@ async function executeSkill() {
   const systemPrompt = (skill && skill.system_prompt) ? skill.system_prompt : '你是一个有帮助的AI助手。请简洁准确地回答用户问题。';
 
   // 显示用户消息（含预览中的图片）
-  appendMessage('user', input || (globalState._pendingImage ? '[图片]' : ''));
-  if (globalState._pendingImage) {
+  const imgLabel = pendingImages.length ? '[图片 x' + pendingImages.length + ']' : '';
+  appendMessage('user', input || imgLabel);
+  if (pendingImages.length) {
     const output = document.getElementById('jb-interaction-output');
     if (output) {
-      const img = document.createElement('img');
-      img.src = globalState._pendingImage;
-      img.style.cssText = 'max-width:200px;max-height:200px;border-radius:4px;margin:4px 0;display:block;';
-      output.appendChild(img);
+      for (const dataURL of pendingImages) {
+        const img = document.createElement('img');
+        img.src = dataURL;
+        img.style.cssText = 'max-width:200px;max-height:200px;border-radius:4px;margin:4px 0;display:block;';
+        output.appendChild(img);
+      }
       output.scrollTop = output.scrollHeight;
     }
   }
@@ -323,7 +375,11 @@ async function executeSkill() {
   appendMessage('ai', '⏳ 思考中...');
 
   const apiKey = modelCfg.builtin ? await getApiKeyFromStorage() : modelCfg.key;
-  if (!apiKey) { replaceLastMessage('error', '请先配置 API Key'); return; }
+  if (!apiKey) {
+    replaceLastMessage('error', '请先配置 API Key');
+    globalState._pendingImages = []; // API Key 失败时也要清空
+    return;
+  }
 
   // 构建上下文（排除"思考中"）
   let historyMsgs = (globalState._chatMessages || [])
@@ -333,24 +389,39 @@ async function executeSkill() {
   callLLM(systemPrompt, historyMsgs, input, modelCfg, apiKey);
 }
 
+var _currentRequestId = null;
+
+function abortCurrentRequest() {
+  if (!_currentRequestId) return;
+  chrome.runtime.sendMessage({ type: 'ABORT_ARK', requestId: _currentRequestId });
+  _currentRequestId = null;
+  replaceLastMessage('error', '⛔ 已中止');
+  var btn = document.getElementById('jb-execute-btn');
+  if (btn) { btn.textContent = '▶ 执行'; btn.className = 'jb-btn jb-btn-success'; btn.onclick = executeSkill; }
+}
+
 function callLLM(systemPrompt, historyMsgs, input, modelCfg, apiKey) {
   // 如果有待发送的图片，把最后一条 user 消息改为多模态格式
   let lastUserMsg = { role: 'user', content: input };
-  if (globalState._pendingImage) {
-    const imgData = globalState._pendingImage;
-    lastUserMsg = {
-      role: 'user',
-      content: [
-        { type: 'text', text: input || '看图说话' },
-        { type: 'image_url', image_url: { url: imgData } }
-      ]
-    };
-    // 先不清空，如果 vision 失败了可以回退
-    globalState._visionRetry = { input, imgData };
+  const pendingImages = globalState._pendingImages || [];
+  if (pendingImages.length) {
+    const contentArray = [{ type: 'text', text: input || '看图说话' }];
+    for (const imgData of pendingImages) {
+      contentArray.push({ type: 'image_url', image_url: { url: imgData } });
+    }
+    lastUserMsg = { role: 'user', content: contentArray };
   }
+  // 清空图片缓存
+  globalState._pendingImages = [];
+
+  // 设置中止状态
+  var reqId = 'ark-' + Date.now() + '-' + Math.random();
+  _currentRequestId = reqId;
+  var btn = document.getElementById('jb-execute-btn');
+  if (btn) { btn.textContent = '■ 中止'; btn.className = 'jb-btn jb-btn-danger'; btn.onclick = abortCurrentRequest; }
 
   chrome.runtime.sendMessage({
-    type: 'CALL_ARK', apiKey, url: modelCfg.url,
+    type: 'CALL_ARK', apiKey, url: modelCfg.url, requestId: reqId,
     messages: [
       { role: 'system', content: systemPrompt },
       ...historyMsgs,
@@ -359,6 +430,10 @@ function callLLM(systemPrompt, historyMsgs, input, modelCfg, apiKey) {
     model: modelCfg.model || 'doubao-seed-2-0-code-preview-260215',
     maxTokens: 8192, temperature: 0.3, _noCache: false
   }, (res) => {
+    _currentRequestId = null;
+    if (btn) { btn.textContent = '▶ 执行'; btn.className = 'jb-btn jb-btn-success'; btn.onclick = executeSkill; }
+    // 用户已点击中止，不覆盖已有提示
+    if (res && res.error === '用户中止') return;
     if (!res || !res.ok) {
       const errMsg = (res?.error || '').toLowerCase();
       if ((errMsg.includes('context_length') || errMsg.includes('too many') || errMsg.includes('maximum'))
@@ -465,15 +540,16 @@ function showSettingsDialog() {
   overlay.querySelector('#jb-check-update-now')?.addEventListener('click', () => {
     const urlInput = overlay.querySelector('#jb-settings-update-url');
     const baseInput = overlay.querySelector('#jb-settings-raw-base');
-    // 先保存当前输入的配置
+    showToast('⏳ 正在检查更新...');
+    // 先保存配置，再检查（链式调用防竞态）
     chrome.runtime.sendMessage({
       type: 'SAVE_UPDATE_CONFIG',
       updateUrl: urlInput?.value || '',
       rawBase: baseInput?.value || ''
-    });
-    showToast('⏳ 正在检查更新...');
-    chrome.runtime.sendMessage({ type: 'CHECK_UPDATE_NOW' }, (res) => {
-      showToast(res?.ok ? '✅ 检查完成' : '⚠️ 检查失败（网络或无需更新）');
+    }, () => {
+      chrome.runtime.sendMessage({ type: 'CHECK_UPDATE_NOW' }, (res) => {
+        showToast(res?.ok ? '✅ 检查完成，如有新版本将自动重启' : '⚠️ 检查失败或无需更新');
+      });
     });
   });
 
